@@ -1,4 +1,4 @@
-package com.hfm.app;  
+package com.hfm.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -1270,8 +1270,6 @@ public class SearchActivity extends Activity implements SearchAdapter.OnItemClic
         protected void onPreExecute() {
             AlertDialog.Builder builder = new AlertDialog.Builder(context);
             View dialogView = LayoutInflater.from(context).inflate(R.layout.dialog_progress_simple, null);
-            TextView progressText = dialogView.findViewById(R.id.progress_text);
-            progressText.setText("Moving files to Recycle Bin...");
             builder.setView(dialogView);
             builder.setCancelable(false);
             progressDialog = builder.create();
