@@ -503,55 +503,167 @@ public class SearchActivity extends Activity implements SearchAdapter.OnItemClic
 
     private QueryParameters parseQuery(String query) {
         QueryParameters params = new QueryParameters();
-        String[] originalParts = query.trim().split("\\s+");
-        if (originalParts.length == 1 && originalParts[0].isEmpty()) {
+        String q_trimmed = query.trim();
+        if (q_trimmed.isEmpty()) {
             return params;
         }
-        boolean[] used = new boolean[originalParts.length];
+        String q_lower = q_trimmed.toLowerCase();
 
-        for (int i = 0; i <= originalParts.length - 3; i++) {
-            if (!used[i] && !used[i+1] && !used[i+2] && originalParts[i + 1].equalsIgnoreCase("days") && originalParts[i + 2].equalsIgnoreCase("ago")) {
-                try {
-                    int days = Integer.parseInt(originalParts[i]);
-                    params.setDateRange(getStartOfDaysAgo(days), getEndOfDaysAgo(days));
-                    used[i] = used[i + 1] = used[i + 2] = true;
-                } catch (NumberFormatException ignored) {}
-            }
-        }
-        for (int i = 0; i <= originalParts.length - 2; i++) {
-            if (!used[i] && !used[i+1] && originalParts[i + 1].equalsIgnoreCase("days")) {
-                try {
-                    int days = Integer.parseInt(originalParts[i]);
-                    params.setDateRange(getStartOfDaysAgo(days - 1), getEndOfToday());
-                    used[i] = used[i + 1] = true;
-                } catch (NumberFormatException ignored) {}
-            }
-        }
 
-        for (int i = 0; i < originalParts.length; i++) {
-            if (used[i]) continue;
-            String partLower = originalParts[i].toLowerCase();
-            if (partLower.equals("today")) {
-                params.setDateRange(getStartOfToday(), getEndOfToday());
-                used[i] = true;
-            } else if (partLower.equals("yesterday")) {
-                params.setDateRange(getStartOfYesterday(), getEndOfYesterday());
-                used[i] = true;
-            } else if (partLower.equals("phone") || partLower.equals("sdcard")) {
-                used[i] = true;
-            }
-        }
+        switch (currentFilterType) {
+            case "images":
+                // Pattern 1: [FolderName] [number] days
+                Pattern p1_img = Pattern.compile("^(.*?)\\s+(\\d+)\\s+days$");
+                Matcher m1_img = p1_img.matcher(q_lower);
+                if (m1_img.find()) {
+                    // Extract folder name with original casing
+                    int keywordEndIndex = m1_img.start(2);
+                    params.folderPath = q_trimmed.substring(0, keywordEndIndex).trim();
+                    try {
+                        int days = Integer.parseInt(m1_img.group(2));
+                        if (days > 0) {
+                            params.setDateRange(getStartOfDaysAgo(days - 1), getEndOfToday());
+                        }
+                    } catch (NumberFormatException ignored) {}
+                    return params;
+                }
 
-        StringBuilder folderBuilder = new StringBuilder();
-        for (int i = 0; i < originalParts.length; i++) {
-            if (!used[i]) {
-                if (folderBuilder.length() > 0) folderBuilder.append(" ");
-                folderBuilder.append(originalParts[i]);
-            }
-        }
-        String finalFolderPath = folderBuilder.toString().trim();
-        if (!finalFolderPath.isEmpty()) {
-            params.folderPath = finalFolderPath;
+                // Pattern 2: [FolderName] today or [FolderName] yesterday
+                Pattern p2_img = Pattern.compile("^(.*?)\\s+(today|yesterday)$");
+                Matcher m2_img = p2_img.matcher(q_lower);
+                if (m2_img.find()) {
+                    int keywordEndIndex = m2_img.start(2);
+                    params.folderPath = q_trimmed.substring(0, keywordEndIndex).trim();
+                    String daySpecifier = m2_img.group(2);
+                    if ("today".equals(daySpecifier)) {
+                        params.setDateRange(getStartOfToday(), getEndOfToday());
+                    } else { // yesterday
+                        params.setDateRange(getStartOfYesterday(), getEndOfYesterday());
+                    }
+                    return params;
+                }
+
+                // Pattern 3: day [number]
+                Pattern p3_img = Pattern.compile("^day\\s+(\\d+)$");
+                Matcher m3_img = p3_img.matcher(q_lower);
+                if (m3_img.find()) {
+                    try {
+                        int day = Integer.parseInt(m3_img.group(1));
+                        if (day > 0) {
+                            params.setDateRange(getStartOfDaysAgo(day - 1), getEndOfDaysAgo(day - 1));
+                        }
+                    } catch (NumberFormatException ignored) {}
+                    return params;
+                }
+
+                // If no pattern matches, the whole query is a folder/keyword
+                params.folderPath = q_trimmed;
+                break;
+
+            case "videos":
+            case "documents":
+            case "archives":
+            case "other":
+                // Universal Sub-Filter: [keyword] day [number] - check this first
+                Pattern p1_gen = Pattern.compile("^(.*?)\\s+day\\s+(\\d+)$");
+                Matcher m1_gen = p1_gen.matcher(q_lower);
+                if (m1_gen.find()) {
+                    // Find where " day " starts
+                    int keywordEndIndex = q_lower.lastIndexOf(" day ");
+                    params.folderPath = q_trimmed.substring(0, keywordEndIndex).trim();
+                    try {
+                        int day = Integer.parseInt(m1_gen.group(2));
+                        if (day > 0) {
+                            params.setDateRange(getStartOfDaysAgo(day - 1), getEndOfDaysAgo(day - 1));
+                        }
+                    } catch (NumberFormatException ignored) {}
+                    return params;
+                }
+
+                // Pattern 1 (Isolated Day): day [number]
+                Pattern p2_gen = Pattern.compile("^day\\s+(\\d+)$");
+                Matcher m2_gen = p2_gen.matcher(q_lower);
+                if (m2_gen.find()) {
+                    try {
+                        int day = Integer.parseInt(m2_gen.group(1));
+                        if (day > 0) {
+                            params.setDateRange(getStartOfDaysAgo(day - 1), getEndOfDaysAgo(day - 1));
+                        }
+                    } catch (NumberFormatException ignored) {}
+                    return params;
+                }
+
+                // Pattern 2 (Cumulative Days): [number] days
+                Pattern p3_gen = Pattern.compile("^(\\d+)\\s+days$");
+                Matcher m3_gen = p3_gen.matcher(q_lower);
+                if (m3_gen.find()) {
+                    try {
+                        int days = Integer.parseInt(m3_gen.group(1));
+                        if (days > 0) {
+                            params.setDateRange(getStartOfDaysAgo(days - 1), getEndOfToday());
+                        }
+                    } catch (NumberFormatException ignored) {}
+                    return params;
+                }
+
+                // If no pattern matches, the whole query is a folder/keyword
+                params.folderPath = q_trimmed;
+                break;
+
+            case "all":
+            default:
+                // This is the original logic from the provided file
+                String[] originalParts = q_trimmed.split("\\s+");
+                if (originalParts.length == 1 && originalParts[0].isEmpty()) {
+                    return params;
+                }
+                boolean[] used = new boolean[originalParts.length];
+
+                for (int i = 0; i <= originalParts.length - 3; i++) {
+                    if (!used[i] && !used[i+1] && !used[i+2] && originalParts[i + 1].equalsIgnoreCase("days") && originalParts[i + 2].equalsIgnoreCase("ago")) {
+                        try {
+                            int days = Integer.parseInt(originalParts[i]);
+                            params.setDateRange(getStartOfDaysAgo(days), getEndOfDaysAgo(days));
+                            used[i] = used[i + 1] = used[i + 2] = true;
+                        } catch (NumberFormatException ignored) {}
+                    }
+                }
+                for (int i = 0; i <= originalParts.length - 2; i++) {
+                    if (!used[i] && !used[i+1] && originalParts[i + 1].equalsIgnoreCase("days")) {
+                        try {
+                            int days = Integer.parseInt(originalParts[i]);
+                            params.setDateRange(getStartOfDaysAgo(days - 1), getEndOfToday());
+                            used[i] = used[i + 1] = true;
+                        } catch (NumberFormatException ignored) {}
+                    }
+                }
+
+                for (int i = 0; i < originalParts.length; i++) {
+                    if (used[i]) continue;
+                    String partLower = originalParts[i].toLowerCase();
+                    if (partLower.equals("today")) {
+                        params.setDateRange(getStartOfToday(), getEndOfToday());
+                        used[i] = true;
+                    } else if (partLower.equals("yesterday")) {
+                        params.setDateRange(getStartOfYesterday(), getEndOfYesterday());
+                        used[i] = true;
+                    } else if (partLower.equals("phone") || partLower.equals("sdcard")) {
+                        used[i] = true;
+                    }
+                }
+
+                StringBuilder folderBuilder = new StringBuilder();
+                for (int i = 0; i < originalParts.length; i++) {
+                    if (!used[i]) {
+                        if (folderBuilder.length() > 0) folderBuilder.append(" ");
+                        folderBuilder.append(originalParts[i]);
+                    }
+                }
+                String finalFolderPath = folderBuilder.toString().trim();
+                if (!finalFolderPath.isEmpty()) {
+                    params.folderPath = finalFolderPath;
+                }
+                break;
         }
         return params;
     }
@@ -832,7 +944,14 @@ public class SearchActivity extends Activity implements SearchAdapter.OnItemClic
 					else if (itemId == R.id.filter_documents) currentFilterType = "documents";
 					else if (itemId == R.id.filter_archives) currentFilterType = "archives";
 					else if (itemId == R.id.filter_other) currentFilterType = "other";
-					executeQuery(searchInput.getText().toString());
+					
+                    // New Workflow: Clear the screen and wait for the user to enter a query.
+                    // This prevents the app from crashing by trying to load all files of a type at once.
+                    displayList.clear();
+                    adapter.notifyDataSetChanged();
+
+                    // The call to executeQuery() is removed. The query will only run when
+                    // the user explicitly searches via the search input bar.
 					return true;
 				}
 			});
