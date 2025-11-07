@@ -1,7 +1,6 @@
 package com.hfm.app;
 
 import android.content.Context;
-import android.util.Base64;
 import android.util.Log;
 
 import java.io.ByteArrayInputStream;
@@ -13,6 +12,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.spec.KeySpec;
+import java.util.Base64; // <<< THIS LINE HAS BEEN CORRECTED
 import javax.crypto.Cipher;
 import javax.crypto.CipherInputStream;
 import javax.crypto.CipherOutputStream;
@@ -101,7 +101,7 @@ public class CloakingManager {
                 while ((bytesRead = encryptedFis.read(buffer)) != -1) {
                     byteStream.write(buffer, 0, bytesRead);
                 }
-                String encodedString = Base64.encodeToString(byteStream.toByteArray(), Base64.NO_WRAP);
+                String encodedString = android.util.Base64.encodeToString(byteStream.toByteArray(), android.util.Base64.NO_WRAP);
                 cloakedFos.write(encodedString.getBytes());
             }
 
@@ -158,7 +158,7 @@ public class CloakingManager {
                 while ((bytesRead = fis.read(buffer)) != -1) {
                     byteStream.write(buffer, 0, bytesRead);
                 }
-                byte[] decodedBytes = Base64.decode(byteStream.toByteArray(), Base64.NO_WRAP);
+                byte[] decodedBytes = android.util.Base64.decode(byteStream.toByteArray(), android.util.Base64.NO_WRAP);
                 base64InputStream = new ByteArrayInputStream(decodedBytes);
             }
 
