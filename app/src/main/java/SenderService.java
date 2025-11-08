@@ -15,6 +15,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.OnFailureListener;
@@ -36,6 +37,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -85,6 +87,12 @@ public class SenderService extends Service {
 
             Notification notification = buildNotification("Starting Drop Send Service...", true);
             startForeground(NOTIFICATION_ID, notification);
+            
+            // --- MODIFICATION: Start the progress activity for the sender ---
+            Intent progressIntent = new Intent(this, DropProgressActivity.class);
+            progressIntent.putExtra("is_sender", true);
+            progressIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(progressIntent);
 
             new Thread(new Runnable() {
                 @Override
@@ -100,56 +108,52 @@ public class SenderService extends Service {
         File inputFile = new File(filePath);
         if (!inputFile.exists()) {
             Log.e(TAG, "File to send does not exist: " + filePath);
-            stopServiceAndCleanup("Error: File not found.");
+            broadcastError("File not found at path: " + filePath);
+            stopServiceAndCleanup(null);
             return;
         }
 
-        // 1. Data Cloak - THIS IS THE FIRST STEP, AS REQUIRED
         updateNotification("Cloaking data...", true);
+        broadcastStatus("Cloaking data...", "Please wait, this may take a moment...", -1, -1, -1);
         cloakedFile = CloakingManager.cloakFile(this, inputFile, secretNumber);
         if (cloakedFile == null) {
             Log.e(TAG, "Cloaking file failed.");
-            stopServiceAndCleanup("Error: Failed to cloak file.");
+            broadcastError("Failed to cloak file for secure transfer.");
+            stopServiceAndCleanup(null);
             return;
         }
 
-        // 2. Start HTTP Server
         try {
             server = new NanoHttpd(cloakedFile);
             server.start();
         } catch (IOException e) {
             Log.e(TAG, "Failed to start HTTP server.", e);
-            stopServiceAndCleanup("Error: Could not start server.");
+            broadcastError("Could not start local server for transfer.\n\n" + getStackTraceAsString(e));
+            stopServiceAndCleanup(null);
             return;
         }
 
-        // 3. Discover Public IP/Port via STUN
         updateNotification("Discovering network address...", true);
+        broadcastStatus("Finding Peer...", "Discovering network address...", -1, -1, -1);
         StunClient.StunResult stunResult = StunClient.getPublicIpAddress();
         if (stunResult == null) {
             Log.e(TAG, "STUN discovery failed.");
-            stopServiceAndCleanup("Error: Network discovery failed.");
+            broadcastError("Network discovery failed. Could not determine public IP address.");
+            stopServiceAndCleanup(null);
             return;
         }
 
-        // 4. Create Firestore Document with CORRECTED INFORMATION
         updateNotification("Creating drop request...", true);
+        broadcastStatus("Creating Request...", "Contacting server...", -1, -1, -1);
         String senderUsername = generateUsernameFromUid(currentUser.getUid());
 
         Map<String, Object> dropRequest = new HashMap<>();
         dropRequest.put("senderId", currentUser.getUid());
         dropRequest.put("senderUsername", senderUsername);
         dropRequest.put("receiverUsername", receiverUsername);
-        
-        // --- BUG FIX STARTS HERE ---
-        // Store the original filename for display purposes on the receiver's UI.
         dropRequest.put("filename", inputFile.getName());
-        // Store the new, cloaked filename for the receiver to use in its download request.
         dropRequest.put("cloakedFilename", cloakedFile.getName());
-        // Store the size of the CLOAKED file, not the original file.
         dropRequest.put("filesize", cloakedFile.length());
-        // --- BUG FIX ENDS HERE ---
-        
         dropRequest.put("status", "pending");
         dropRequest.put("secretNumber", secretNumber);
         dropRequest.put("senderPublicIp", stunResult.publicIp);
@@ -166,6 +170,7 @@ public class SenderService extends Service {
                         dropRequestId = documentReference.getId();
                         Log.d(TAG, "Drop request created with ID: " + dropRequestId);
                         updateNotification("Waiting for receiver...", true);
+                        broadcastStatus("Waiting for Receiver...", "Request sent. Waiting for acceptance.", -1, -1, -1);
                         listenForStatusChange(dropRequestId);
                     }
                 })
@@ -173,9 +178,43 @@ public class SenderService extends Service {
                     @Override
                     public void onFailure(@NonNull Exception e) {
                         Log.e(TAG, "Failed to create drop request.", e);
-                        stopServiceAndCleanup("Error: Failed to create request.");
+                        broadcastError("Failed to create drop request on server.\n\n" + getStackTraceAsString(e));
+                        stopServiceAndCleanup(null);
                     }
                 });
+    }
+
+    private void broadcastStatus(String major, String minor, int progress, int max, long bytes) {
+        Intent intent = new Intent(DropProgressActivity.ACTION_UPDATE_STATUS);
+        intent.putExtra(DropProgressActivity.EXTRA_STATUS_MAJOR, major);
+        intent.putExtra(DropProgressActivity.EXTRA_STATUS_MINOR, minor);
+        intent.putExtra(DropProgressActivity.EXTRA_PROGRESS, progress);
+        intent.putExtra(DropProgressActivity.EXTRA_MAX_PROGRESS, max);
+        intent.putExtra(DropProgressActivity.EXTRA_BYTES_TRANSFERRED, bytes);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+    }
+
+    private void broadcastComplete() {
+        Intent intent = new Intent(DropProgressActivity.ACTION_TRANSFER_COMPLETE);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+    }
+
+    private void broadcastError(String message) {
+        Intent intent = new Intent(DropProgressActivity.ACTION_TRANSFER_ERROR);
+        // This will be received by HFMDropActivity, which is always listening.
+        Intent hfmdropErrorIntent = new Intent(DownloadService.ACTION_DOWNLOAD_ERROR);
+        hfmdropErrorIntent.putExtra(DownloadService.EXTRA_ERROR_MESSAGE, message);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(hfmdropErrorIntent);
+
+        // This will be received by DropProgressActivity if it is open.
+        LocalBroadcastManager.getInstance(this).sendBroadcast(new Intent(DropProgressActivity.ACTION_TRANSFER_ERROR));
+    }
+    
+    private String getStackTraceAsString(Exception e) {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        e.printStackTrace(pw);
+        return sw.toString();
     }
 
     private void listenForStatusChange(String docId) {
@@ -193,11 +232,12 @@ public class SenderService extends Service {
                     Log.d(TAG, "Drop request status changed to: " + status);
                     if ("accepted".equals(status)) {
                         updateNotification("Receiver connected. Transferring...", true);
+                        broadcastStatus("Transferring...", "Sending file data...", -1, -1, -1);
                     } else if ("declined".equals(status)) {
                         stopServiceAndCleanup("Receiver declined the transfer.");
                     } else if ("complete".equals(status)) {
-                        stopServiceAndCleanup(null); // Success, no toast
-                        // Self-destruct identity
+                        broadcastComplete();
+                        stopServiceAndCleanup(null);
                         if (currentUser != null) {
                             currentUser.delete();
                         }
@@ -214,8 +254,6 @@ public class SenderService extends Service {
 
     private String generateUsernameFromUid(String uid) {
         long hash = uid.hashCode();
-        String[] ADJECTIVES = {"Red", "Blue", "Green", "Silent", "Fast", "Brave", "Ancient", "Wandering", "Golden", "Iron"};
-        String[] NOUNS = {"Tiger", "Lion", "Eagle", "Fox", "Wolf", "River", "Mountain", "Star", "Comet", "Shadow"};
         int adjIndex = (int) (Math.abs(hash % ADJECTIVES.length));
         int nounIndex = (int) (Math.abs((hash / ADJECTIVES.length) % NOUNS.length));
         int number = (int) (Math.abs((hash / (ADJECTIVES.length * NOUNS.length)) % 100));
@@ -257,7 +295,6 @@ public class SenderService extends Service {
                         DocumentSnapshot document = task.getResult();
                         if (document.exists()) {
                             String status = document.getString("status");
-                            // Don't delete if receiver marked it complete, as they will delete it.
                             if (!"complete".equals(status)) {
                                 document.getReference().delete()
                                         .addOnSuccessListener(new OnSuccessListener<Void>() {
@@ -313,7 +350,7 @@ public class SenderService extends Service {
 
         public NanoHttpd(File file) throws IOException {
             super("NanoHttpd Sender Thread");
-            this.serverSocket = new ServerSocket(0); // 0 means assign any free port
+            this.serverSocket = new ServerSocket(0);
             this.fileToServe = file;
         }
 
@@ -349,8 +386,6 @@ public class SenderService extends Service {
                 if (isRunning) {
                     Log.e(TAG, "ServerSocket accept failed.", e);
                 }
-            } finally {
-                // This was causing premature server shutdown, moved stopServer into handleRequest finally block
             }
         }
 
@@ -364,8 +399,6 @@ public class SenderService extends Service {
                 PrintWriter writer = new PrintWriter(out);
 
                 String line = in.readLine();
-                // We don't need to parse the filename from the GET request,
-                // as this server is dedicated to serving only one file per session.
                 if (line == null || !line.startsWith("GET")) {
                     return; 
                 }
@@ -457,7 +490,7 @@ public class SenderService extends Service {
             DatagramSocket socket = null;
             try {
                 socket = new DatagramSocket();
-                socket.setSoTimeout(3000); // 3-second timeout
+                socket.setSoTimeout(3000);
 
                 byte[] request = new byte[20];
                 request[0] = 0x00;
@@ -500,7 +533,7 @@ public class SenderService extends Service {
                 int type = ((data[i] & 0xFF) << 8) | (data[i + 1] & 0xFF);
                 int attrLength = ((data[i + 2] & 0xFF) << 8) | (data[i + 3] & 0xFF);
 
-                if (type == 0x0001 /* MAPPED-ADDRESS */ || type == 0x0020 /* XOR-MAPPED-ADDRESS */) {
+                if (type == 0x0001 || type == 0x0020) {
                     int family = data[i + 5] & 0xFF;
                     if (family == 0x01) { // IPv4
                         int port = ((data[i + 6] & 0xFF) << 8) | (data[i + 7] & 0xFF);
