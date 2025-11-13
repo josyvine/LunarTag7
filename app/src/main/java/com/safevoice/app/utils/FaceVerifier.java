@@ -25,14 +25,11 @@ public class FaceVerifier {
     private static final String TAG = "FaceVerifier";
     private static final String MODEL_FILE = "mobilefacenet.tflite";
 
-    // --- FIX START: Corrected model input dimensions based on the crash log ---
-    // The original code assumed a square 112x112 input, which caused the crash.
-    // The model actually requires a 112x224 input.
+    // Model-specific configuration
     private static final int INPUT_IMAGE_WIDTH = 112;
     private static final int INPUT_IMAGE_HEIGHT = 224;
-    // --- FIX END ---
     
-    private static final int EMBEDDING_SIZE = 192;   // This value was correct.
+    private static final int EMBEDDING_SIZE = 192;   // The size of the output vector.
     private static final int BYTES_PER_CHANNEL = 4;  // Float size
 
     private final Interpreter tflite;
@@ -60,13 +57,16 @@ public class FaceVerifier {
         // 1. Pre-process the image: resize and convert to ByteBuffer
         ByteBuffer inputBuffer = preprocessImage(bitmap);
 
-        // 2. Prepare the output buffer
-        float[][] outputEmbedding = new float[1][EMBEDDING_SIZE];
+        // --- FIX START: Correct the output buffer shape ---
+        // The crash log shows the model outputs a shape of [2, 192].
+        // We must prepare a Java object with the exact same shape to receive the data.
+        float[][] outputEmbedding = new float[2][EMBEDDING_SIZE];
+        // --- FIX END ---
 
         // 3. Run inference with the TFLite model
         tflite.run(inputBuffer, outputEmbedding);
 
-        // 4. Return the resulting embedding vector
+        // 4. Return the first embedding vector. The second is for a flipped image and can be ignored.
         return outputEmbedding[0];
     }
 
@@ -121,23 +121,18 @@ public class FaceVerifier {
      * - Converts the image data into a ByteBuffer.
      */
     private ByteBuffer preprocessImage(Bitmap bitmap) {
-        // --- FIX START: Resize to the correct 112x224 dimensions ---
         Bitmap resizedBitmap = Bitmap.createScaledBitmap(bitmap, INPUT_IMAGE_WIDTH, INPUT_IMAGE_HEIGHT, true);
-
-        // --- FIX: Allocate buffer with the correct size ---
+        
         ByteBuffer byteBuffer = ByteBuffer.allocateDirect(INPUT_IMAGE_WIDTH * INPUT_IMAGE_HEIGHT * 3 * BYTES_PER_CHANNEL);
         byteBuffer.order(ByteOrder.nativeOrder());
 
         int[] intValues = new int[INPUT_IMAGE_WIDTH * INPUT_IMAGE_HEIGHT];
-        // --- FIX END ---
         
         resizedBitmap.getPixels(intValues, 0, resizedBitmap.getWidth(), 0, 0, resizedBitmap.getWidth(), resizedBitmap.getHeight());
 
         int pixel = 0;
-        // --- FIX START: Loop through the correct height and width ---
         for (int i = 0; i < INPUT_IMAGE_HEIGHT; ++i) {
             for (int j = 0; j < INPUT_IMAGE_WIDTH; ++j) {
-                // --- FIX END ---
                 final int val = intValues[pixel++];
                 // Normalize the pixel values from [0, 255] to [-1, 1] as required by many face models.
                 byteBuffer.putFloat((((val >> 16) & 0xFF) - 127.5f) / 128.0f);
