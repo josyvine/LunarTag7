@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace 'com.safevoice.app'
-    compileSdkVersion 34 
+    compileSdkVersion 34  
 
     defaultConfig {
         applicationId "com.safevoice.app"
