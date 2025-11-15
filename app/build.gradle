@@ -1,3 +1,4 @@
+
 plugins {
     id 'com.android.application'
     id 'com.google.gms.google-services'
@@ -5,7 +6,7 @@ plugins {
 
 android {
     namespace 'com.safevoice.app'
-    compileSdkVersion 34  
+    compileSdkVersion 34
 
     defaultConfig {
         applicationId "com.safevoice.app"
@@ -71,13 +72,14 @@ dependencies {
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-firestore'
     implementation 'com.google.firebase:firebase-database' // For WebRTC signaling
+    // --- FIX 1: ADDED FIREBASE MESSAGING DEPENDENCY ---
+    implementation 'com.google.firebase:firebase-messaging'
 
     // Google Play Services
     implementation 'com.google.android.gms:play-services-auth:21.1.0'
     implementation 'com.google.android.gms:play-services-location:21.2.0'
 
-    // --- THIS IS THE FIX ---
-    // Added the missing ML Kit Face Detection library
+    // ML Kit Face Detection library
     implementation 'com.google.mlkit:face-detection:16.1.6'
 
     // Google ML Kit for Text Recognition
@@ -96,6 +98,9 @@ dependencies {
 
     // Updated WebRTC library
     implementation 'com.infobip:google-webrtc:1.0.39079'
+
+    // --- FIX 2: ADDED SECURITY CRYPTO DEPENDENCY ---
+    implementation 'androidx.security:security-crypto:1.0.0'
 
     // Testing Libraries
     testImplementation 'junit:junit:4.13.2'
