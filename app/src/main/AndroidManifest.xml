@@ -2,46 +2,34 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- This block is now included exactly as your reference requires -->
-    <uses-sdk
-        android:minSdkVersion="23"
-        android:targetSdkVersion="34"
-        tools:overrideLibrary="com.google.android.gms.ads_identifier" />
-
-    <!-- Core Permissions for Safe Voice -->
+    <!-- Core Permissions for Lunar Tag -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.CALL_PHONE" />
-    <uses-permission android:name="android.permission.SEND_SMS" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <!-- ADDED: Permissions needed for new services -->
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-
-
-    <!-- Location Permissions for Safe Voice -->
+    <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- Permission needed for the optional Accessibility Service -->
+    <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE"
+        tools:ignore="ProtectedPermissions" />
 
-    <!-- KYC Permissions for Safe Voice -->
-    <uses-permission android:name="android.permission.CAMERA" />
-
-    <!-- Declare hardware features Safe Voice uses -->
+    <!-- Declare hardware features Lunar Tag uses -->
     <uses-feature android:name="android.hardware.camera" android:required="true" />
-    <uses-feature android:name="android.hardware.microphone" android:required="true" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="true" />
 
     <!-- The application tag now matches your reference style -->
     <application
-        android:name=".SafeVoiceApplication"
+        android:name=".LunarTagApplication"
         android:allowBackup="true"
-        android:icon="@drawable/safevoice"
+        android:icon="@drawable/lunartag"
         android:label="@string/app_name"
         android:theme="@style/AppTheme">
 
-        <!-- DisclaimerActivity is the LAUNCHER, ensuring user agrees to terms first -->
+        <!-- OnboardingActivity is the LAUNCHER, ensuring user grants permissions first -->
         <activity
-            android:name=".DisclaimerActivity"
+            android:name=".OnboardingActivity"
             android:exported="true"
             android:theme="@style/AppTheme.NoActionBar">
             <intent-filter>
@@ -50,52 +38,48 @@
             </intent-filter>
         </activity>
 
-        <!-- The main app interface, launched after the disclaimer is accepted -->
+        <!-- The main app interface, launched after onboarding is complete -->
         <activity
             android:name=".MainActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:windowSoftInputMode="adjustPan" />
 
-        <!-- The screen for user identity verification -->
-        <activity
-            android:name=".KycActivity"
-            android:label="Verify Your Identity"
-            android:exported="false" />
-
-        <!-- THIS IS THE NEW ACTIVITY DECLARATION FOR THE LOGIN SCREEN -->
+        <!-- The activity for user sign-in -->
         <activity
             android:name=".LoginActivity"
             android:label="Sign In"
             android:exported="false" />
-            
-        <!-- NEW: The full-screen activity for receiving emergency alerts -->
-        <activity
-            android:name=".EmergencyPopupActivity"
-            android:exported="false"
-            android:launchMode="singleTop"
-            android:showOnLockScreen="true"
-            android:theme="@style/AppTheme.NoActionBar" />
 
-        <!-- The "Always Listening" background service -->
+        <!-- The Service for sending scheduled images -->
         <service
-            android:name=".services.VoiceRecognitionService"
+            android:name=".services.SendService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="microphone" />
+            android:foregroundServiceType="dataSync" />
 
-        <!-- The service that handles sending alerts after a trigger -->
+        <!-- The optional Accessibility Service for automating WhatsApp sends -->
         <service
-            android:name=".services.EmergencyHandlerService"
-            android:enabled="true"
-            android:exported="false" />
-            
-        <!-- NEW: The service for receiving Firebase Cloud Messaging alerts -->
-        <service
-            android:name=".services.FirebaseAlertService"
+            android:name=".services.LunarTagAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+                <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!-- Provider for sharing images with other apps -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
+        </provider>
 
         <!-- CRITICAL: This disables the default Firebase initializer,
              allowing our app to load the configuration dynamically at runtime. -->
