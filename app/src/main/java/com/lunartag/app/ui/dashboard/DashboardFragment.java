@@ -52,8 +52,9 @@ public class DashboardFragment extends Fragment {
     private void updateUI() {
         // This is where logic will be added to:
         // 1. Read shift timing and status from SharedPreferences and update the text views.
-        // 2. Query Firestore for the next scheduled send and pending uploads.
-        // 3. Query Firestore for the most recent photos and populate the RecyclerView.
+        // 2. Query the local Room database for the next scheduled send and pending uploads.
+        // 3. Query the local Room database for the most recent photos and populate the RecyclerView.
+        // This avoids hitting Firestore on every screen load.
     }
 
     @Override
@@ -61,4 +62,4 @@ public class DashboardFragment extends Fragment {
         super.onDestroyView();
         binding = null; // Important to prevent memory leaks
     }
-  }
+}
