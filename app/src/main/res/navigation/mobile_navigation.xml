@@ -31,6 +31,18 @@
         android:id="@+id/navigation_settings"
         android:name="com.lunartag.app.ui.settings.SettingsFragment"
         android:label="@string/title_settings"
-        tools:layout="@layout/fragment_settings" />
+        tools:layout="@layout/fragment_settings" >
+        <!-- This action defines the path from Settings to the Schedule Editor -->
+        <action
+            android:id="@+id/action_settings_to_schedule_editor"
+            app:destination="@id/navigation_schedule_editor" />
+    </fragment>
+
+    <!-- This new destination defines the Schedule Editor screen itself -->
+    <fragment
+        android:id="@+id/navigation_schedule_editor"
+        android:name="com.lunartag.app.ui.admin.ScheduleEditorFragment"
+        android:label="Schedule Editor"
+        tools:layout="@layout/fragment_schedule_editor" />
 
 </navigation>
