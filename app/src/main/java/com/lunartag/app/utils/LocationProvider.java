@@ -16,24 +16,31 @@ import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.Priority;
-import com.google.android.gms.tasks.OnFailureListener;
-import com.google.android.gms.tasks.OnSuccessListener;
 
 /**
- * A helper class to simplify getting the device's current location.
- * It uses the FusedLocationProviderClient for efficient location fetching.
+ * A "Pro" architecture Location Provider.
+ * It runs in the background, maintaining a constant "Fresh" GPS lock
+ * so the Camera never has to wait.
  */
 public class LocationProvider {
 
     private static final String TAG = "LocationProvider";
     private final FusedLocationProviderClient fusedLocationClient;
     private final Context context;
+    private LocationCallback locationCallback;
+    
+    // The "Hot" variable that holds the instant coordinate
+    private Location currentBestLocation = null;
+    
+    // Interfaces for status updates (Optional, used to change GPS Icon color)
+    private LocationStatusListener statusListener;
 
-    /**
-     * Interface to provide the location result asynchronously.
-     */
-    public interface LocationResultCallback {
-        void onLocationResult(Location location);
+    public interface LocationStatusListener {
+        void onLocationUpdated(Location location);
+    }
+
+    public void setStatusListener(LocationStatusListener listener) {
+        this.statusListener = listener;
     }
 
     public LocationProvider(Context context) {
@@ -42,69 +49,78 @@ public class LocationProvider {
     }
 
     /**
-     * Fetches the current location of the device.
-     * This method requests a single, high-accuracy update.
-     * @param callback The callback to be invoked with the location result.
+     * STEP 1: Start the Engine.
+     * Call this in onResume(). It starts the GPS immediately.
      */
-    public void getCurrentLocation(final LocationResultCallback callback) {
-        // First, check if location permissions have been granted.
+    public void startLocationUpdates() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            Log.e(TAG, "Location permission not granted. Cannot fetch location.");
-            callback.onLocationResult(null);
+            Log.e(TAG, "Permission missing. Cannot start updates.");
             return;
         }
 
-        // Use the modern getCurrentLocation API for a one-time location request.
-        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                .addOnSuccessListener(new OnSuccessListener<Location>() {
-                    @Override
-                    public void onSuccess(Location location) {
-                        if (location != null) {
-                            Log.d(TAG, "Successfully retrieved location.");
-                            callback.onLocationResult(location);
-                        } else {
-                            Log.w(TAG, "getCurrentLocation returned null. This can happen if location is off.");
-                            requestLocationUpdate(callback); // Fallback to a legacy request
-                        }
-                    }
-                })
-                .addOnFailureListener(new OnFailureListener() {
-                    @Override
-                    public void onFailure(@NonNull Exception e) {
-                        Log.e(TAG, "getCurrentLocation failed.", e);
-                        requestLocationUpdate(callback); // Fallback to a legacy request
-                    }
-                });
-    }
+        // 1. INSTANTLY grab the last known location (Cache)
+        // This ensures we have data even if the GPS takes 30 seconds to warm up.
+        fusedLocationClient.getLastLocation().addOnSuccessListener(location -> {
+            if (location != null) {
+                // Apply "Freshness" logic if needed, but for now, take what we can get.
+                Log.d(TAG, "Last Known Location recovered: " + location.toString());
+                currentBestLocation = location;
+                if (statusListener != null) statusListener.onLocationUpdated(location);
+            }
+        });
 
-    /**
-     * A fallback method to request location updates if getCurrentLocation fails.
-     */
-    private void requestLocationUpdate(final LocationResultCallback callback) {
-        final LocationRequest locationRequest = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000)
-                .setMinUpdateIntervalMillis(5000)
-                .setMaxUpdates(1)
+        // 2. Create the Request for FRESH data
+        LocationRequest locationRequest = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000) // Update every 5s
+                .setMinUpdateIntervalMillis(2000) // Fastest every 2s
+                .setWaitForAccurateLocation(false) // CRITICAL: Do not wait!
                 .build();
 
-        final LocationCallback locationCallback = new LocationCallback() {
+        // 3. Define what happens when a NEW satellite signal arrives
+        locationCallback = new LocationCallback() {
             @Override
             public void onLocationResult(@NonNull LocationResult locationResult) {
-                fusedLocationClient.removeLocationUpdates(this);
-                if (locationResult.getLastLocation() != null) {
-                    Log.d(TAG, "Successfully retrieved location via fallback request.");
-                    callback.onLocationResult(locationResult.getLastLocation());
-                } else {
-                    Log.e(TAG, "LocationResult was null after fallback request.");
-                    callback.onLocationResult(null);
+                for (Location location : locationResult.getLocations()) {
+                    if (location != null) {
+                        Log.d(TAG, "Fresh GPS Signal Received: " + location.toString());
+                        currentBestLocation = location;
+                        
+                        // Notify the UI to turn the icon Green
+                        if (statusListener != null) statusListener.onLocationUpdated(location);
+                    }
                 }
             }
         };
 
-        try {
-            fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper());
-        } catch (SecurityException e) {
-            Log.e(TAG, "Permission check failed before requesting location updates.", e);
-            callback.onLocationResult(null);
+        // 4. Start the loop
+        fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper());
+        Log.d(TAG, "GPS Engine Started (Background Mode).");
+    }
+
+    /**
+     * STEP 2: Stop the Engine.
+     * Call this in onPause() to save battery.
+     */
+    public void stopLocationUpdates() {
+        if (locationCallback != null) {
+            fusedLocationClient.removeLocationUpdates(locationCallback);
+            Log.d(TAG, "GPS Engine Stopped.");
         }
     }
-              }
+
+    /**
+     * STEP 3: The Instant Getter.
+     * Call this when "Capture" is clicked. It returns IMMEDIATELY.
+     * No callbacks. No waiting.
+     */
+    public Location getCurrentLocationFast() {
+        if (currentBestLocation != null) {
+            // We have a location! Return it.
+            return currentBestLocation;
+        } else {
+            // The engine hasn't found anything yet (e.g. deep underground).
+            // Return null, allowing the Camera to print "Location Unknown" instantly
+            // rather than crashing or hanging.
+            return null;
+        }
+    }
+}
