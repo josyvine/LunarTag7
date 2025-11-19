@@ -1,6 +1,6 @@
 package com.lunartag.app.ui.camera;
 
-import android.Manifest;
+import android.Manifest; 
 import android.annotation.SuppressLint;
 import android.content.ContentResolver;
 import android.content.ContentValues;
