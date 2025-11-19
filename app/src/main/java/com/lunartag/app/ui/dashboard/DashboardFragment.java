@@ -1,4 +1,4 @@
-package com.lunartag.app.ui.dashboard;
+package com.lunartag.app.ui.dashboard; 
 
 import android.content.Context;
 import android.content.SharedPreferences;
