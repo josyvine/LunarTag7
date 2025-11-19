@@ -77,6 +77,10 @@ public class CameraFragment extends Fragment {
     private static final String PREFS_TOGGLES = "LunarTagFeatureToggles";
     private static final String KEY_ADMIN_ENABLED = "customTimestampEnabled";
 
+    // Preferences for Settings (Company Name)
+    private static final String PREFS_SETTINGS = "LunarTagSettings";
+    private static final String KEY_COMPANY_NAME = "company_name";
+
     private FragmentCameraBinding binding;
     private ImageCapture imageCapture;
     private ExecutorService cameraExecutor;
@@ -283,7 +287,7 @@ public class CameraFragment extends Fragment {
             logToScreen("System: Grabbing Location immediately...");
             // We DO NOT wait here. We grab the value from memory instantly.
             Location location = locationProvider.getCurrentLocationFast();
-            
+
             if (location == null) {
                 logToScreen("WARNING: Location is NULL/Waiting. Saving anyway (Safety Mode).");
             } else {
@@ -300,7 +304,11 @@ public class CameraFragment extends Fragment {
                     assignedTime = getNextScheduledTimestamp(realTime);
                 }
 
-                String companyName = "My Company"; 
+                // --- FIX: LOAD COMPANY NAME FROM SETTINGS ---
+                SharedPreferences settingsPrefs = requireContext().getSharedPreferences(PREFS_SETTINGS, Context.MODE_PRIVATE);
+                String companyName = settingsPrefs.getString(KEY_COMPANY_NAME, "My Company"); 
+                // --------------------------------------------
+
                 String address = getAddressFromLocation(location);
                 SimpleDateFormat sdf = new SimpleDateFormat("dd-MMM-yyyy hh:mm:ss a", Locale.US);
                 String timeString = sdf.format(new Date(assignedTime));
@@ -368,7 +376,7 @@ public class CameraFragment extends Fragment {
     @Override
     public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        
+
         if (requestCode == StorageUtils.REQUEST_CODE_PICK_FOLDER) {
             if (resultCode == Activity.RESULT_OK && data != null) {
                 Uri treeUri = data.getData();
