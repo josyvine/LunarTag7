@@ -1,128 +1,194 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
     tools:context=".ui.dashboard.DashboardFragment">
 
-    <LinearLayout
+    <!-- NEW: Selection Toolbar (Hidden by default) -->
+    <!-- This appears when items are long-pressed -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/card_selection_toolbar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:layout_margin="8dp"
+        android:visibility="gone"
+        app:cardBackgroundColor="#D32F2F"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="4dp"
+        tools:visibility="visible">
 
-        <!-- Shift Status Card -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Shift Status"
-            android:textAppearance="?attr/textAppearanceHeadline6" />
-
-        <com.google.android.material.card.MaterialCardView
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            app:cardCornerRadius="8dp"
-            app:cardElevation="2dp">
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="12dp">
 
-            <LinearLayout
-                android:layout_width="match_parent"
+            <!-- Close Selection Mode -->
+            <ImageView
+                android:id="@+id/btn_close_selection"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:contentDescription="Close Selection"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                app:tint="@android:color/white" />
+
+            <!-- Count Text -->
+            <TextView
+                android:id="@+id/text_selection_count"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
+                android:layout_weight="1"
+                android:layout_marginStart="16dp"
+                android:text="0 Selected"
+                android:textColor="@android:color/white"
+                android:textStyle="bold"
+                android:textSize="16sp" />
 
-                <TextView
-                    android:id="@+id/text_shift_timing"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textAppearance="?attr/textAppearanceBody1"
-                    tools:text="Current Shift: 02:00 PM – 10:00 PM" />
+            <!-- Select All Button -->
+            <Button
+                android:id="@+id/btn_select_all"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Select All"
+                android:textColor="@android:color/white" />
 
-                <TextView
-                    android:id="@+id/text_shift_status"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:textStyle="bold"
-                    tools:text="Status: OFF DUTY" />
+            <!-- Delete Button -->
+            <ImageView
+                android:id="@+id/btn_delete_selection"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="8dp"
+                android:contentDescription="Delete Selected"
+                android:src="@android:drawable/ic_menu_delete"
+                app:tint="@android:color/white" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/button_toggle_shift"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="end"
-                    android:layout_marginTop="16dp"
-                    tools:text="Start Shift" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+    <!-- Existing Scrollable Content -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
 
-        <!-- Upcoming Send Card (Scheduled / Pending) -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="Scheduled Sends"
-            android:textAppearance="?attr/textAppearanceHeadline6" />
-
-        <!-- MODIFIED: Now contains a RecyclerView instead of static text -->
-        <com.google.android.material.card.MaterialCardView
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            app:cardCornerRadius="8dp"
-            app:cardElevation="2dp">
+            android:orientation="vertical"
+            android:padding="16dp">
 
-            <LinearLayout
+            <!-- Shift Status Card -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Shift Status"
+                android:textAppearance="?attr/textAppearanceHeadline6" />
+
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="8dp">
+                android:layout_marginTop="8dp"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp">
 
-                <!-- This ID matches binding.recyclerViewScheduledSends in Java -->
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/recycler_view_scheduled_sends"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:minHeight="100dp"
-                    android:orientation="horizontal"
-                    app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
-                    tools:listitem="@layout/item_photo_thumbnail"
-                    tools:itemCount="3" />
+                    android:orientation="vertical"
+                    android:padding="16dp">
 
-                <!-- Empty state text (Optional, hidden by default via code logic) -->
-                <TextView
-                    android:id="@+id/text_no_scheduled"
-                    android:layout_width="wrap_content"
+                    <TextView
+                        android:id="@+id/text_shift_timing"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="?attr/textAppearanceBody1"
+                        tools:text="Current Shift: 02:00 PM – 10:00 PM" />
+
+                    <TextView
+                        android:id="@+id/text_shift_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:textStyle="bold"
+                        tools:text="Status: OFF DUTY" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/button_toggle_shift"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="end"
+                        android:layout_marginTop="16dp"
+                        tools:text="Start Shift" />
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Upcoming Send Card (Scheduled / Pending) -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="Scheduled Sends"
+                android:textAppearance="?attr/textAppearanceHeadline6" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:text="No pending uploads"
-                    android:visibility="gone"
-                    android:padding="16dp"/>
+                    android:orientation="vertical"
+                    android:padding="8dp">
 
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/recycler_view_scheduled_sends"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:minHeight="100dp"
+                        android:orientation="horizontal"
+                        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+                        tools:listitem="@layout/item_photo_thumbnail"
+                        tools:itemCount="3" />
 
-        <!-- Recent Photos Section -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="Recent Photos"
-            android:textAppearance="?attr/textAppearanceHeadline6" />
+                    <TextView
+                        android:id="@+id/text_no_scheduled"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:text="No pending uploads"
+                        android:visibility="gone"
+                        android:padding="16dp"/>
 
-        <!-- This is the Bottom Box -->
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/recycler_view_recent_photos"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:minHeight="100dp"
-            app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
-            android:orientation="horizontal"
-            tools:listitem="@layout/item_photo_thumbnail"
-            tools:itemCount="4" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
-    </LinearLayout>
-</ScrollView>
+            <!-- Recent Photos Section -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="Recent Photos"
+                android:textAppearance="?attr/textAppearanceHeadline6" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/recycler_view_recent_photos"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:minHeight="100dp"
+                app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+                android:orientation="horizontal"
+                tools:listitem="@layout/item_photo_thumbnail"
+                tools:itemCount="4" />
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>
