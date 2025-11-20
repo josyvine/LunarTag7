@@ -12,6 +12,7 @@ import java.util.List;
 /**
  * Data Access Object (DAO) for the Photo entity.
  * This interface defines the database interactions for the 'photos' table.
+ * UPDATED: Added delete capability for multi-select.
  */
 @Dao
 public interface PhotoDao {
@@ -60,4 +61,12 @@ public interface PhotoDao {
      */
     @Query("SELECT * FROM photos WHERE status = 'PENDING'")
     List<Photo> getPendingPhotos();
+
+    /**
+     * NEW: Deletes a list of photos by their IDs.
+     * Used for the multi-select delete feature.
+     * @param ids The list of photo IDs to remove.
+     */
+    @Query("DELETE FROM photos WHERE id IN (:ids)")
+    void deletePhotos(List<Long> ids);
 }
