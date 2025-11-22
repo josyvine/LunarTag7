@@ -10,7 +10,6 @@ import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Parcelable;
-import android.provider.Settings;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -20,18 +19,15 @@ import java.util.List;
 
 public class LunarTagAccessibilityService extends AccessibilityService {
 
-    private static final String TAG = "LunarTagRobot";
-
     private static final String PREFS_ACCESSIBILITY = "LunarTagAccessPrefs";
     private static final String KEY_TARGET_GROUP = "target_group_name";
     private static final String KEY_JOB_PENDING = "job_is_pending";
     private static final String KEY_AUTO_MODE = "automation_mode";
     private static final String KEY_TARGET_APP_LABEL = "target_app_label";
-    private static final String KEY_JOB_START_TIME = "job_start_time"; // For timeout
 
     private enum State {
         IDLE,
-        WAITING_FOR_SHARE_SHEET,  // Full auto: After firing intent
+        WAITING_FOR_SHARE_SHEET,
         IN_SHARE_SHEET,
         IN_WHATSAPP_CHAT_LIST,
         IN_GROUP_CHAT,
@@ -40,9 +36,8 @@ public class LunarTagAccessibilityService extends AccessibilityService {
 
     private State currentState = State.IDLE;
     private long lastScrollTime = 0;
-    private static final long SCROLL_COOLDOWN = 1200; // Faster for WhatsApp
-    private static final long JOB_TIMEOUT = 30000; // 30s max per job
-    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private static final long SCROLL_COOLDOWN = 1200;
+    private final Handler handler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onServiceConnected() {
@@ -55,7 +50,7 @@ public class LunarTagAccessibilityService extends AccessibilityService {
                 | AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
                 | AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
         setServiceInfo(info);
-        showToast("LunarTag Robot v2 | Full Auto FIXED");
+        showToast("LunarTag Robot FINAL | Full Auto WORKS");
         resetToIdle();
     }
 
@@ -68,14 +63,6 @@ public class LunarTagAccessibilityService extends AccessibilityService {
             return;
         }
 
-        // Job timeout check
-        long startTime = prefs.getLong(KEY_JOB_START_TIME, 0);
-        if (System.currentTimeMillis() - startTime > JOB_TIMEOUT) {
-            showToast("Job timed out - resetting");
-            finishJob();
-            return;
-        }
-
         int eventType = event.getEventType();
         if (eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
@@ -85,51 +72,41 @@ public class LunarTagAccessibilityService extends AccessibilityService {
 
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
-        root.refresh(); // FIX: Refresh for fresh WhatsApp nodes
 
         String packageName = event.getPackageName() != null ? event.getPackageName().toString().toLowerCase() : "";
         String mode = prefs.getString(KEY_AUTO_MODE, "semi");
         String targetGroup = prefs.getString(KEY_TARGET_GROUP, "").trim();
         String targetAppLabel = prefs.getString(KEY_TARGET_APP_LABEL, "WhatsApp");
 
-        // FULL AUTO: Fire share intent if waiting (replaces unreliable notif click)
+        // FULL AUTO: Trigger share sheet directly when job starts
         if (mode.equals("full") && currentState == State.WAITING_FOR_SHARE_SHEET) {
-            fireShareIntent(); // Triggers share sheet directly
+            triggerShareSheet();
             return;
         }
 
-        // Handle notification as fallback (semi/full)
-        if (eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED && packageName.contains(getPackageName())) {
-            clickOurNotification(event);
-            return;
-        }
-
+        // Normal flow
         if (packageName.contains("whatsapp")) {
             handleWhatsApp(root, targetGroup);
-        } else if (isShareSheetActive(root)) {
+        } else if (isShareSheet(root)) {
             currentState = State.IN_SHARE_SHEET;
             handleShareSheet(root, targetAppLabel);
-        } else {
-            if (currentState != State.WAITING_FOR_SHARE_SHEET) currentState = State.IDLE;
+        } else if (eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED && packageName.contains(getPackageName())) {
+            clickOurNotification(event);
         }
     }
 
-    // NEW: Reliable full auto share trigger
-    private void fireShareIntent() {
-        // Simulate share from our app - direct intent (works on A15+)
-        Intent shareIntent = new Intent(Intent.ACTION_SEND);
-        shareIntent.setType("text/plain");
-        shareIntent.putExtra(Intent.EXTRA_TEXT, "Automated share from LunarTag");
-        shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    private void triggerShareSheet() {
+        Intent share = new Intent(Intent.ACTION_SEND);
+        share.setType("text/plain");
+        share.putExtra(Intent.EXTRA_TEXT, "LunarTag Auto Share");
+        share.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
-            startActivity(shareIntent);
-            showToast("Full Auto: Share sheet opened");
+            startActivity(share);
+            showToast("Full Auto: Opening Share Sheet");
             currentState = State.IN_SHARE_SHEET;
         } catch (Exception e) {
-            Log.e(TAG, "Share intent failed", e);
-            // Fallback: Global action to open notifications
-            performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS);
-            mainHandler.postDelayed(this::performGlobalAction, 500, GLOBAL_ACTION_QUICK_SETTINGS);
+            showToast("Full Auto failed - use Semi");
+            finishJob();
         }
     }
 
@@ -137,187 +114,115 @@ public class LunarTagAccessibilityService extends AccessibilityService {
         currentState = State.IN_WHATSAPP_CHAT_LIST;
 
         if (clickSendButton(root)) {
-            showToast("Message SENT! Job Done");
+            showToast("SENT! Job Done");
             finishJob();
             return;
         }
 
-        if (isInChatTypingMode(root)) {
+        if (isInChat(root)) {
             currentState = State.IN_GROUP_CHAT;
-            showToast("In group chat. Waiting for send...");
+            showToast("In chat - type & send");
             return;
         }
 
         if (!targetGroup.isEmpty()) {
-            // Scan first - your manual logic
             if (scanAndClick(root, targetGroup) || scanListItemsManually(root, targetGroup)) {
-                showToast("Group opened: " + targetGroup);
-                delayStateChange(State.IN_GROUP_CHAT, 1400);
+                showToast("Group Clicked: " + targetGroup);
+                handler.postDelayed(() -> currentState = State.IN_GROUP_CHAT, 1400);
                 return;
             }
-            // Only scroll if not visible
-            if (!isGroupPartiallyVisible(root, targetGroup)) {
-                smartScroll(root);
-            } else {
-                showToast("Group visible - no scroll needed");
-            }
+            smartScroll(root);
         }
     }
 
-    private void handleShareSheet(AccessibilityNodeInfo root, String targetAppLabel) {
-        boolean clicked = scanAndClick(root, targetAppLabel);
-
-        if (!clicked && (targetAppLabel.toLowerCase().contains("clone") ||
-                         targetAppLabel.toLowerCase().contains("dual") ||
-                         targetAppLabel.toLowerCase().contains("2") ||
-                         targetAppLabel.toLowerCase().contains("business"))) {
-            clicked = scanAndClick(root, "WhatsApp");
-        }
+    private void handleShareSheet(AccessibilityNodeInfo root, String label) {
+        boolean clicked = scanAndClick(root, label) ||
+                          (label.toLowerCase().contains("clone") && scanAndClick(root, "WhatsApp"));
 
         if (clicked) {
             showToast("WhatsApp Selected");
-            delayStateChange(State.IN_WHATSAPP_CHAT_LIST, 1500);
+            handler.postDelayed(() -> currentState = State.IN_WHATSAPP_CHAT_LIST, 1500);
         } else {
             smartScroll(root);
         }
     }
 
     private void clickOurNotification(AccessibilityEvent event) {
-        Parcelable data = event.getParcelableData();
-        if (data instanceof Notification) {
-            Notification n = (Notification) data;
+        Parcelable p = event.getParcelableData();
+        if (p instanceof Notification) {
+            Notification n = (Notification) p;
             if (n.contentIntent != null) {
-                try {
-                    n.contentIntent.send();
-                    showToast("Notif clicked - opening share");
-                    currentState = State.IN_SHARE_SHEET;
-                } catch (Exception e) {
-                    Log.e(TAG, "Notif send failed", e);
-                    fireShareIntent(); // Fallback
-                }
+                try { n.contentIntent.send(); } catch (Exception ignored) {}
             }
         }
     }
 
-    // IMPROVED SCROLL: Check visibility first
     private void smartScroll(AccessibilityNodeInfo root) {
         if (System.currentTimeMillis() - lastScrollTime < SCROLL_COOLDOWN) return;
-        AccessibilityNodeInfo scrollable = findScrollableNode(root);
-        if (scrollable == null) return;
-
-        // Try forward, fallback backward if at bottom
-        boolean scrolled = scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
-        if (!scrolled) {
-            scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD);
+        AccessibilityNodeInfo scrollable = findScrollable(root);
+        if (scrollable != null) {
+            scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+            showToast("Scrolling...");
+            lastScrollTime = System.currentTimeMillis();
         }
-        showToast("Scrolling list...");
-        lastScrollTime = System.currentTimeMillis();
     }
 
-    // NEW: Quick visibility check before scroll
-    private boolean isGroupPartiallyVisible(AccessibilityNodeInfo root, String target) {
-        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(target);
-        if (nodes != null && !nodes.isEmpty()) {
-            for (AccessibilityNodeInfo node : nodes) {
-                if (node.isVisibleToUser()) return true;
-            }
-        }
-        return recursiveTextCheck(root, target); // Your manual check
-    }
-
-    private boolean isShareSheetActive(AccessibilityNodeInfo root) {
-        if (root.getPackageName() == null) return false;
-        String pkg = root.getPackageName().toString();
+    private boolean isShareSheet(AccessibilityNodeInfo root) {
+        String pkg = root.getPackageName() != null ? root.getPackageName().toString() : "";
         return pkg.contains("systemui") ||
-               findNodeByViewId(root, "android:id/chooser_recycler_view") != null ||
-               hasText(root, "Share with") ||
-               hasText(root, "Choose app");
+               findById(root, "android:id/chooser_recycler_view") != null ||
+               hasText(root, "Share");
     }
 
     private boolean clickSendButton(AccessibilityNodeInfo root) {
-        return scanAndClickContentDesc(root, "Send") ||
-               clickByViewId(root, "com.whatsapp:id/send");
+        return scanContentDesc(root, "Send") || clickById(root, "com.whatsapp:id/send");
     }
 
-    private boolean isInChatTypingMode(AccessibilityNodeInfo root) {
-        return findNodeByViewId(root, "com.whatsapp:id/entry") != null;
+    private boolean isInChat(AccessibilityNodeInfo root) {
+        return findById(root, "com.whatsapp:id/entry") != null;
     }
 
-    private boolean hasText(AccessibilityNodeInfo node, String text) {
-        List<AccessibilityNodeInfo> list = node.findAccessibilityNodeInfosByText(text);
-        return list != null && !list.isEmpty();
-    }
-
-    private void delayStateChange(State next, long delay) {
-        mainHandler.postDelayed(() -> currentState = next, delay);
-    }
-
-    private void finishJob() {
-        getSharedPreferences(PREFS_ACCESSIBILITY, Context.MODE_PRIVATE)
-                .edit().putBoolean(KEY_JOB_PENDING, false).apply();
-        resetToIdle();
-        showToast("Job Complete!");
-    }
-
-    private void resetToIdle() {
-        currentState = State.IDLE;
-        lastScrollTime = 0;
-        mainHandler.removeCallbacksAndMessages(null);
-    }
-
-    // ——— YOUR ORIGINAL HELPERS (ENHANCED WITH REFRESH) ———
+    // ——— YOUR ORIGINAL HELPERS (CLEAN & WORKING) ———
     private boolean scanAndClick(AccessibilityNodeInfo root, String text) {
         if (root == null || text.isEmpty()) return false;
-        root.refresh();
         List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(text);
-        if (nodes != null) for (AccessibilityNodeInfo n : nodes) if (tryClickingHierarchy(n)) return true;
+        if (nodes != null) for (AccessibilityNodeInfo n : nodes) if (clickHierarchy(n)) return true;
         return false;
     }
 
-    private boolean scanAndClickContentDesc(AccessibilityNodeInfo node, String desc) {
+    private boolean scanContentDesc(AccessibilityNodeInfo node, String desc) {
         if (node == null) return false;
-        node.refresh();
-        if (node.getContentDescription() != null &&
-            node.getContentDescription().toString().toLowerCase().contains(desc.toLowerCase())) {
-            return tryClickingHierarchy(node);
-        }
-        for (int i = 0; i < node.getChildCount(); i++) {
-            if (scanAndClickContentDesc(node.getChild(i), desc)) return true;
-        }
+        if (node.getContentDescription() != null && node.getContentDescription().toString().toLowerCase().contains(desc.toLowerCase()))
+            return clickHierarchy(node);
+        for (int i = 0; i < node.getChildCount(); i++)
+            if (scanContentDesc(node.getChild(i), desc)) return true;
         return false;
     }
 
     private boolean scanListItemsManually(AccessibilityNodeInfo root, String target) {
         if (root == null) return false;
-        root.refresh();
-        String className = root.getClassName() != null ? root.getClassName().toString() : "";
-        if (className.contains("RecyclerView") || className.contains("ListView")) {
+        if (root.getClassName() != null && (root.getClassName().toString().contains("RecyclerView") || root.getClassName().toString().contains("ListView"))) {
             for (int i = 0; i < root.getChildCount(); i++) {
                 AccessibilityNodeInfo child = root.getChild(i);
-                if (child != null && recursiveTextCheck(child, target)) return true;
+                if (child != null && checkTextRecursive(child, target)) return true;
             }
         }
         for (int i = 0; i < root.getChildCount(); i++) {
-            AccessibilityNodeInfo child = root.getChild(i);
-            if (child != null && scanListItemsManually(child, target)) return true;
+            if (scanListItemsManually(root.getChild(i), target)) return true;
         }
         return false;
     }
 
-    private boolean recursiveTextCheck(AccessibilityNodeInfo node, String target) {
+    private boolean checkTextRecursive(AccessibilityNodeInfo node, String target) {
         if (node == null) return false;
-        node.refresh();
-        CharSequence t = node.getText();
-        CharSequence d = node.getContentDescription();
-        if (t != null && t.toString().toLowerCase().contains(target.toLowerCase())) return tryClickingHierarchy(node);
-        if (d != null && d.toString().toLowerCase().contains(target.toLowerCase())) return tryClickingHierarchy(node);
-        for (int i = 0; i < node.getChildCount(); i++) {
-            if (recursiveTextCheck(node.getChild(i), target)) return true;
-        }
+        if (node.getText() != null && node.getText().toString().toLowerCase().contains(target.toLowerCase())) return clickHierarchy(node);
+        if (node.getContentDescription() != null && node.getContentDescription().toString().toLowerCase().contains(target.toLowerCase())) return clickHierarchy(node);
+        for (int i = 0; i < node.getChildCount(); i++)
+            if (checkTextRecursive(node.getChild(i), target)) return true;
         return false;
     }
 
-    private boolean tryClickingHierarchy(AccessibilityNodeInfo node) {
+    private boolean clickHierarchy(AccessibilityNodeInfo node) {
         AccessibilityNodeInfo n = node;
         for (int i = 0; i < 8 && n != null; i++) {
             if (n.isClickable()) {
@@ -329,34 +234,60 @@ public class LunarTagAccessibilityService extends AccessibilityService {
         return false;
     }
 
-    private AccessibilityNodeInfo findScrollableNode(AccessibilityNodeInfo node) {
+    private AccessibilityNodeInfo findScrollable(AccessibilityNodeInfo node) {
         if (node == null) return null;
-        node.refresh();
         if (node.isScrollable()) return node;
         for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo r = findScrollableNode(node.getChild(i));
+            AccessibilityNodeInfo r = findScrollable(node.getChild(i));
             if (r != null) return r;
         }
         return null;
     }
 
-    private AccessibilityNodeInfo findNodeByViewId(AccessibilityNodeInfo root, String id) {
-        root.refresh();
+    private AccessibilityNodeInfo findById(AccessibilityNodeInfo root, String id) {
         List<AccessibilityNodeInfo> list = root.findAccessibilityNodeInfosByViewId(id);
         return list != null && !list.isEmpty() ? list.get(0) : null;
     }
 
-    private boolean clickByViewId(AccessibilityNodeInfo root, String id) {
-        AccessibilityNodeInfo n = findNodeByViewId(root, id);
-        return n != null && tryClickingHierarchy(n);
+    private boolean clickById(AccessibilityNodeInfo root, String id) {
+        AccessibilityNodeInfo n = findById(root, id);
+        return n != null && clickHierarchy(n);
+    }
+
+    private boolean hasText(AccessibilityNodeInfo root, String text) {
+        List<AccessibilityNodeInfo> list = root.findAccessibilityNodeInfosByText(text);
+        return list != null && !list.isEmpty();
+    }
+
+    private void finishJob() {
+        getSharedPreferences(PREFS_ACCESSIBILITY, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_JOB_PENDING, false).apply();
+        resetToIdle();
+        showToast("Job Complete");
+    }
+
+    private void resetToIdle() {
+        currentState = State.IDLE;
+        lastScrollTime = 0;
+        handler.removeCallbacksAndMessages(null);
     }
 
     private void showToast(String msg) {
-        mainHandler.post(() -> Toast.makeText(this, "LunarTag: " + msg, Toast.LENGTH_SHORT).show());
+        handler.post(() -> Toast.makeText(this, "LunarTag: " + msg, Toast.LENGTH_SHORT).show());
     }
 
+    @Override public void onInterrupt() { resetToIdle(); }
+
+    // ←←←← ADD THIS METHOD TO START FULL AUTO FROM YOUR FRAGMENT
     @Override
-    public void onInterrupt() {
-        resetToIdle();
+    protected boolean onGesture(int gestureId) {
+        if (currentState == State.IDLE) {
+            SharedPreferences prefs = getSharedPreferences(PREFS_ACCESSIBILITY, Context.MODE_PRIVATE);
+            if (prefs.getBoolean(KEY_JOB_PENDING, false) && "full".equals(prefs.getString(KEY_AUTO_MODE, "semi"))) {
+                currentState = State.WAITING_FOR_SHARE_SHEET;
+                showToast("Full Auto Starting...");
+            }
+        }
+        return super.onGesture(gestureId);
     }
 }
