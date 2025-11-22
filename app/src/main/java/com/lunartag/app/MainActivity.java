@@ -1,6 +1,10 @@
 package com.lunartag.app;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -24,7 +28,7 @@ import java.util.Map;
 
 /**
  * The main screen of the application.
- * UPDATED: Handles navigation for the new 6-icon Horizontal Scroll View.
+ * UPDATED: Handles navigation and LIVE LOG RECEIVER for the Robot.
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -35,6 +39,29 @@ public class MainActivity extends AppCompatActivity {
 
     // We will populate this dynamically based on Android Version to prevent crashes
     private String[] requiredPermissions;
+
+    // --- LIVE LOG RECEIVER ---
+    // This listens for messages from LunarTagAccessibilityService
+    private final BroadcastReceiver logReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent != null && "com.lunartag.ACTION_LOG_UPDATE".equals(intent.getAction())) {
+                String message = intent.getStringExtra("log_msg");
+                if (message != null) {
+                    // 1. Append the new message to the Green Text View
+                    binding.tvLiveLog.append(message + "\n");
+
+                    // 2. Auto-Scroll to the bottom so the latest log is visible
+                    binding.logScrollView.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            binding.logScrollView.fullScroll(View.FOCUS_DOWN);
+                        }
+                    });
+                }
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -154,6 +181,33 @@ public class MainActivity extends AppCompatActivity {
                 });
 
         checkAndRequestPermissions();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // REGISTER RECEIVER: Start listening for robot logs
+        // standard registerReceiver works for standard broadcasts from Service
+        IntentFilter filter = new IntentFilter("com.lunartag.ACTION_LOG_UPDATE");
+        // For Android 14+ compatibility (if targetSDK >= 34), consider specifying flags if needed, 
+        // but standard registerReceiver(receiver, filter) is sufficient for internal app use usually.
+        // If you crash on Android 14, use ContextCompat.registerReceiver with RECEIVER_NOT_EXPORTED.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+             registerReceiver(logReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+             registerReceiver(logReceiver, filter);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // UNREGISTER RECEIVER: Stop listening when app is backgrounded (optional, but good practice)
+        try {
+            unregisterReceiver(logReceiver);
+        } catch (IllegalArgumentException e) {
+            // Receiver not registered
+        }
     }
 
     /**
