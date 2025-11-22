@@ -3,7 +3,6 @@ package com.lunartag.app.services;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.Notification;
-import android.app.PendingIntent;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Handler;
@@ -16,8 +15,11 @@ import android.widget.Toast;
 import java.util.List;
 
 /**
- * FINAL FIX: "PASSIVE-FIRST" ARCHITECTURE
- * The robot is disabled by default. It only wakes up when specific triggers happen.
+ * FIXED LOGIC: DIRECT DETECTION
+ * 1. Notification: Scans specifically for "Photo Ready to Send".
+ * 2. Share Sheet: Only clicks "WhatsApp" if package is System/Android.
+ * 3. WhatsApp: Clicks Send/Group as normal.
+ * 4. Home Screen: IGNORED (Safe).
  */
 public class LunarTagAccessibilityService extends AccessibilityService {
 
@@ -27,19 +29,14 @@ public class LunarTagAccessibilityService extends AccessibilityService {
     private static final String KEY_TARGET_GROUP = "target_group_name";
     private static final String KEY_TARGET_APP_LABEL = "target_app_label";
 
-    // TIMERS
-    private long lastNotificationTime = 0;
-    private static final long SHARE_SHEET_TIMEOUT = 5000; // Robot sleeps again after 5 seconds
-
     private boolean isScrolling = false;
 
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
         AccessibilityServiceInfo info = new AccessibilityServiceInfo();
-        info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED |
-                          AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED |
-                          AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED;
+        // Listen to everything so we don't miss the pop-up
+        info.eventTypes = AccessibilityEvent.TYPES_ALL_MASK; 
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
         info.notificationTimeout = 100;
         info.flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS | 
@@ -50,103 +47,102 @@ public class LunarTagAccessibilityService extends AccessibilityService {
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
-        // 1. SAFETY: If no job is pending, do absolutely nothing.
+        // 1. CHECK IF JOB IS PENDING
         SharedPreferences prefs = getSharedPreferences(PREFS_ACCESSIBILITY, Context.MODE_PRIVATE);
         if (!prefs.getBoolean(KEY_JOB_PENDING, false)) return;
 
         String mode = prefs.getString(KEY_AUTO_MODE, "semi");
-        String currentPkg = (event.getPackageName() != null) ? event.getPackageName().toString().toLowerCase() : "";
-
-        // ============================================================
-        // TRIGGER 1: NOTIFICATION (The "Start" Button)
-        // ============================================================
-        if (event.getEventType() == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
-            if (mode.equals("full") && currentPkg.contains(getPackageName())) {
-                Parcelable data = event.getParcelableData();
-                if (data instanceof Notification) {
-                    try {
-                        // Wake up the robot logic for the next 5 seconds
-                        lastNotificationTime = System.currentTimeMillis();
-                        showDebugToast("🤖 Notif Clicked. Waiting for Share Sheet...");
-                        
-                        ((Notification) data).contentIntent.send();
-                    } catch (Exception e) { e.printStackTrace(); }
-                }
-            }
-            return; // Don't do anything else during a notification event
-        }
-
-        // ============================================================
-        // LOGIC: DETERMINE IF WE SHOULD ACT
-        // ============================================================
-        
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return;
-
-        // SCENARIO A: WE ARE INSIDE WHATSAPP
-        if (currentPkg.contains("whatsapp")) {
-            handleWhatsAppLogic(root, prefs);
-            return;
-        }
-
-        // SCENARIO B: WE ARE LOOKING FOR "WHATSAPP" IN SHARE LIST (Full Auto Only)
-        // STRICT RULE: We only look for this if a notification was clicked < 5 seconds ago.
-        // This prevents clicking the Home Screen icon.
-        if (mode.equals("full")) {
-            long timeSinceNotif = System.currentTimeMillis() - lastNotificationTime;
-            
-            if (timeSinceNotif < SHARE_SHEET_TIMEOUT) {
-                // We are in the "Safe Zone" (5 seconds after notification).
-                // It is safe to assume we are in the Share Sheet.
-                handleShareSheetLogic(root, prefs);
-            } else {
-                // TIMEOUT EXPIRED.
-                // We are likely on the Home Screen or IDLE.
-                // DO NOTHING. DO NOT SCAN. DO NOT CLICK.
-            }
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // LOGIC HANDLERS
-    // -------------------------------------------------------------------------
-
-    private void handleShareSheetLogic(AccessibilityNodeInfo root, SharedPreferences prefs) {
         String targetApp = prefs.getString(KEY_TARGET_APP_LABEL, "WhatsApp");
-
-        // 1. Click App Name
-        if (scanAndClick(root, targetApp)) return;
-
-        // 2. Clone Support
-        if (targetApp.toLowerCase().contains("clone") && scanAndClick(root, "WhatsApp")) return;
-
-        // 3. Scroll (Only scroll if we are in the active 5-second window)
-        performScroll(root);
-    }
-
-    private void handleWhatsAppLogic(AccessibilityNodeInfo root, SharedPreferences prefs) {
         String targetGroup = prefs.getString(KEY_TARGET_GROUP, "");
 
-        // 1. Try to Click SEND (Paper Plane)
-        if (scanAndClickContentDesc(root, "Send")) {
-            showDebugToast("🤖 Done.");
-            prefs.edit().putBoolean(KEY_JOB_PENDING, false).apply(); // STOP JOB
+        // Get Package Name safely
+        String pkg = (event.getPackageName() != null) ? event.getPackageName().toString().toLowerCase() : "";
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+
+        // =================================================================
+        // TRIGGER 1: THE NOTIFICATION (Fixes "Nothing works")
+        // =================================================================
+        // We look for the specific text in your screenshot: "Photo Ready to Send"
+        if (mode.equals("full")) {
+            // Method A: Standard Notification Event
+            if (event.getEventType() == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
+                if (pkg.contains(getPackageName())) {
+                    Parcelable data = event.getParcelableData();
+                    if (data instanceof Notification) {
+                        try {
+                            ((Notification) data).contentIntent.send();
+                            return;
+                        } catch (Exception e) { e.printStackTrace(); }
+                    }
+                }
+            }
+
+            // Method B: Heads-Up Display (The banner in your screenshot)
+            // If the notification appears as a view on screen, we click it directly.
+            if (root != null) {
+                // Scan for the text visible in your screenshot
+                List<AccessibilityNodeInfo> notifNodes = root.findAccessibilityNodeInfosByText("Photo Ready to Send");
+                if (!notifNodes.isEmpty()) {
+                    showDebugToast("🤖 Clicking Notification Banner...");
+                    if (performClick(notifNodes.get(0))) return;
+                }
+            }
+        }
+
+        if (root == null) return;
+
+        // =================================================================
+        // TRIGGER 2: SHARE SHEET (Safe Mode)
+        // =================================================================
+        // We ONLY click "WhatsApp" if the package is "android" (System) or "resolver".
+        // We NEVER click if the package is a Launcher/Home.
+        
+        boolean isSystemShare = pkg.equals("android") || 
+                                pkg.contains("chooser") || 
+                                pkg.contains("resolver") ||
+                                pkg.contains("share"); // Some custom UIs
+
+        // DO NOT RUN THIS ON LAUNCHER (Home Screen Protection)
+        if (mode.equals("full") && isSystemShare && !pkg.contains("launcher") && !pkg.contains("home")) {
+            
+            // 1. Click Target App
+            if (scanAndClick(root, targetApp)) return;
+            
+            // 2. Click Clone
+            if (targetApp.toLowerCase().contains("clone") && scanAndClick(root, "WhatsApp")) return;
+
+            // 3. Scroll (Only in Share Sheet)
+            performScroll(root);
             return;
         }
 
-        // 2. Search for Group
-        if (!targetGroup.isEmpty()) {
-            if (scanAndClick(root, targetGroup)) return;
-            if (scanListItemsManually(root, targetGroup)) return;
-            performScroll(root);
+        // =================================================================
+        // TRIGGER 3: INSIDE WHATSAPP (Semi & Full)
+        // =================================================================
+        if (pkg.contains("whatsapp")) {
+            
+            // Priority: Send Button
+            if (scanAndClickContentDesc(root, "Send")) {
+                showDebugToast("🤖 Message Sent.");
+                prefs.edit().putBoolean(KEY_JOB_PENDING, false).apply();
+                return;
+            }
+
+            // Find Group
+            if (!targetGroup.isEmpty()) {
+                if (scanAndClick(root, targetGroup)) return;
+                if (scanListItemsManually(root, targetGroup)) return;
+                performScroll(root);
+            }
         }
     }
 
-    // -------------------------------------------------------------------------
-    // STANDARD HELPERS (No Changes Needed Here)
-    // -------------------------------------------------------------------------
+    // -----------------------------------------------------------
+    // HELPERS
+    // -----------------------------------------------------------
 
     private boolean scanAndClick(AccessibilityNodeInfo root, String text) {
+        if (root == null) return false;
         List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(text);
         if (nodes != null && !nodes.isEmpty()) {
             for (AccessibilityNodeInfo node : nodes) {
@@ -170,6 +166,7 @@ public class LunarTagAccessibilityService extends AccessibilityService {
 
     private boolean scanListItemsManually(AccessibilityNodeInfo root, String targetText) {
         if (root == null) return false;
+        // Only dig deep into containers
         if (root.getClassName() != null && 
            (root.getClassName().toString().contains("RecyclerView") || 
             root.getClassName().toString().contains("ListView") ||
